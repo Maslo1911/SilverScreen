@@ -1,41 +1,43 @@
-// server.js — Финальная чистая версия
 
 const express = require('express');
 const { nanoid } = require('nanoid');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const dotenv = require('dotenv');
+const cookieParser = require('cookie-parser');
+const { createClient } = require('@supabase/supabase-js');
+
+dotenv.config();
 
 const app = express();
 const port = 3000;
 
-const ACCESS_SECRET = 'access_secret_key_films_2026_very_strong';
+const ACCESS_SECRET = process.env.ACCESS_SECRET;
+const REFRESH_SECRET = process.env.REFRESH_SECRET;
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_ANON_KEY;
 
-let films = [];
-let categories = [];
-let users = [];
-let reviews = [];
-let roles = [
-    { id: '1', name: 'Admin', description: 'Полный доступ' },
-    { id: '2', name: 'User', description: 'Обычный пользователь' }
-];
+if (!ACCESS_SECRET || !REFRESH_SECRET || !supabaseUrl || !supabaseKey) {
+    console.error('❌ Ошибка: Проверь .env файл!');
+    process.exit(1);
+}
+
+const supabase = createClient(supabaseUrl, supabaseKey);
+console.log('🔥 Подключено к Supabase — полная ER-диаграмма');
 
 // ====================== MIDDLEWARE ======================
 app.use(cors({ origin: "http://localhost:3001", credentials: true }));
 app.use(express.json());
+app.use(cookieParser());
 
-// Унифицированные ответы
-const success = (res, data, status = 200) =>
-    res.status(status).json({ success: true, data });
-
-const error = (res, message, status = 400) =>
-    res.status(status).json({ success: false, error: message });
+const success = (res, data, status = 200) => res.status(status).json({ success: true, data });
+const error = (res, message, status = 400) => res.status(status).json({ success: false, error: message });
 
 // ====================== AUTH MIDDLEWARE ======================
 const authenticate = (req, res, next) => {
     const token = req.headers.authorization?.split(' ')[1];
     if (!token) return error(res, "Нет токена авторизации", 401);
-
     try {
         req.user = jwt.verify(token, ACCESS_SECRET);
         next();
@@ -45,218 +47,254 @@ const authenticate = (req, res, next) => {
 };
 
 const isAdmin = (req, res, next) => {
-    if (req.user?.role !== 'admin') {
-        return error(res, "Недостаточно прав доступа", 403);
-    }
+    if (req.user?.role !== 'admin') return error(res, "Недостаточно прав доступа", 403);
     next();
 };
-
-// ====================== ИНИЦИАЛИЗАЦИЯ ======================
-const initData = async () => {
-    const adminHash = await bcrypt.hash('admin123', 10);
-    users.push({
-        id: nanoid(6),
-        email: 'admin@filmhub.ru',
-        password: adminHash,
-        role: 'admin'
-    });
-
-    films = [
-        { id: nanoid(8), title: "Дюна: Часть вторая", category: "Фантастика", year: 2024, averageRating: 4.8 },
-        { id: nanoid(8), title: "Оппенгеймер", category: "Драма", year: 2023, averageRating: 4.9 },
-        { id: nanoid(8), title: "Барби", category: "Комедия", year: 2023, averageRating: 4.5 }
-    ];
-
-    console.log('✅ FilmHub сервер запущен');
-    console.log('👤 Админ: admin@filmhub.ru / admin123');
-};
-
-initData();
 
 // ====================== AUTH ======================
 app.post('/api/v1/auth/register', async (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) return error(res, "Email и password обязательны");
     if (password.length < 6) return error(res, "Пароль должен быть не менее 6 символов");
-    if (users.find(u => u.email === email)) return error(res, "Пользователь уже существует", 409);
+
+    const { data: existing } = await supabase.from('user').select('id').eq('email', email).single();
+    if (existing) return error(res, "Пользователь уже существует", 409);
 
     const hashed = await bcrypt.hash(password, 10);
-    users.push({ id: nanoid(6), email, password: hashed, role: 'user' });
-
+    const { error: e } = await supabase.from('user').insert([{ id: nanoid(6), email, password: hashed, role_id: '2' }]);
+    if (e) return error(res, e.message, 500);
     success(res, { message: "Регистрация прошла успешно" }, 201);
 });
 
 app.post('/api/v1/auth/login', async (req, res) => {
     const { email, password } = req.body;
-    const user = users.find(u => u.email === email);
+    const { data: user, error: e } = await supabase.from('user').select('id, email, password, role_id').eq('email', email).single();
+    if (e || !user || !(await bcrypt.compare(password, user.password))) return error(res, "Неверный email или пароль", 401);
 
-    if (!user || !(await bcrypt.compare(password, user.password))) {
-        return error(res, "Неверный email или пароль", 401);
+    const role = user.role_id === '1' ? 'admin' : 'user';
+    const accessToken = jwt.sign({ id: user.id, role }, ACCESS_SECRET, { expiresIn: '1h' });
+    const refreshToken = jwt.sign({ id: user.id }, REFRESH_SECRET, { expiresIn: '7d' });
+
+    res.cookie('refreshToken', refreshToken, { httpOnly: true, secure: false, sameSite: 'lax', maxAge: 7*24*60*60*1000 });
+    success(res, { accessToken });
+});
+
+app.post('/api/v1/auth/refresh', (req, res) => {
+    const refreshToken = req.cookies.refreshToken;
+    if (!refreshToken) return error(res, "Нет refresh токена", 401);
+    try {
+        const payload = jwt.verify(refreshToken, REFRESH_SECRET);
+        const accessToken = jwt.sign({ id: payload.id, role: 'user' }, ACCESS_SECRET, { expiresIn: '1h' });
+        const newRefreshToken = jwt.sign({ id: payload.id }, REFRESH_SECRET, { expiresIn: '7d' });
+        res.cookie('refreshToken', newRefreshToken, { httpOnly: true, secure: false, sameSite: 'lax', maxAge: 7*24*60*60*1000 });
+        success(res, { accessToken });
+    } catch (err) {
+        return error(res, "Неверный или просроченный refresh токен", 401);
     }
+});
 
-    const token = jwt.sign({ id: user.id, role: user.role }, ACCESS_SECRET, { expiresIn: '24h' });
-    success(res, { accessToken: token });
+app.post('/api/v1/auth/logout', (req, res) => {
+    res.clearCookie('refreshToken');
+    success(res, { message: "Вы вышли из системы" });
 });
 
 // ====================== USERS ======================
-app.get('/api/v1/users/me', authenticate, (req, res) => {
-    const user = users.find(u => u.id === req.user.id);
+app.get('/api/v1/users/me', authenticate, async (req, res) => {
+    const { data: user } = await supabase.from('user').select('id, email, role_id').eq('id', req.user.id).single();
     if (!user) return error(res, "Пользователь не найден", 404);
-    success(res, { id: user.id, email: user.email, role: user.role });
+    success(res, { id: user.id, email: user.email, role: user.role_id === '1' ? 'admin' : 'user' });
 });
 
-app.put('/api/v1/users/me', authenticate, (req, res) => {
-    success(res, { message: "Профиль успешно обновлён" });
+app.put('/api/v1/users/me', authenticate, (req, res) => success(res, { message: "Профиль успешно обновлён" }));
+
+app.get('/api/v1/users', authenticate, isAdmin, async (req, res) => {
+    const { data } = await supabase.from('user').select('id, email, role_id');
+    success(res, data);
 });
 
-app.get('/api/v1/users', authenticate, isAdmin, (req, res) => {
-    success(res, users.map(u => ({ id: u.id, email: u.email, role: u.role })));
+// ====================== ROLES ======================
+app.get('/api/v1/roles', authenticate, isAdmin, async (req, res) => {
+    const { data } = await supabase.from('role').select('*');
+    success(res, data);
 });
 
-// ====================== ROLES & PERMISSIONS ======================
-app.get('/api/v1/roles', authenticate, isAdmin, (req, res) => success(res, roles));
-
-app.post('/api/v1/roles', authenticate, isAdmin, (req, res) => {
+app.post('/api/v1/roles', authenticate, isAdmin, async (req, res) => {
     if (!req.body.name) return error(res, "Название роли обязательно");
-    const newRole = { id: nanoid(6), name: req.body.name, description: req.body.description || '' };
-    roles.push(newRole);
-    success(res, newRole, 201);
+    const { data, error: e } = await supabase.from('role').insert([{ id: nanoid(6), name: req.body.name, description: req.body.description || '' }]).select().single();
+    if (e) return error(res, e.message, 500);
+    success(res, data, 201);
 });
 
-app.get('/api/v1/roles/{id}', authenticate, isAdmin, (req, res) => {
-    const role = roles.find(r => r.id === req.params.id);
-    role ? success(res, role) : error(res, "Роль не найдена", 404);
+app.get('/api/v1/roles/:id', authenticate, isAdmin, async (req, res) => {
+    const { data } = await supabase.from('role').select('*').eq('id', req.params.id).single();
+    data ? success(res, data) : error(res, "Роль не найдена", 404);
 });
 
-app.put('/api/v1/roles/{id}', authenticate, isAdmin, (req, res) => {
-    success(res, { message: "Роль успешно обновлена" });
+app.put('/api/v1/roles/:id', authenticate, isAdmin, async (req, res) => {
+    const { data, error: e } = await supabase.from('role').update(req.body).eq('id', req.params.id).select().single();
+    if (e) return error(res, e.message, 500);
+    success(res, data);
 });
 
-app.delete('/api/v1/roles/{id}', authenticate, isAdmin, (req, res) => {
-    roles = roles.filter(r => r.id !== req.params.id);
+app.delete('/api/v1/roles/:id', authenticate, isAdmin, async (req, res) => {
+    const { error: e } = await supabase.from('role').delete().eq('id', req.params.id);
+    if (e) return error(res, e.message, 500);
     res.status(204).send();
 });
 
-app.get('/api/v1/permissions', authenticate, isAdmin, (req, res) => success(res, permissions));
+// ====================== PERMISSIONS ======================
+app.get('/api/v1/permissions', authenticate, isAdmin, async (req, res) => {
+    const { data } = await supabase.from('permissions').select('*');
+    success(res, data);
+});
 
 // ====================== CATEGORIES ======================
-app.get('/api/v1/categories', (req, res) => success(res, categories));
+app.get('/api/v1/categories', async (req, res) => {
+    const { data } = await supabase.from('category').select('*');
+    success(res, data);
+});
 
-app.post('/api/v1/categories', authenticate, isAdmin, (req, res) => {
+app.post('/api/v1/categories', authenticate, isAdmin, async (req, res) => {
     if (!req.body.name) return error(res, "Название категории обязательно");
-    const newCat = { id: nanoid(6), name: req.body.name };
-    categories.push(newCat);
-    success(res, newCat, 201);
+    const { data, error: e } = await supabase.from('category').insert([{ id: nanoid(6), name: req.body.name }]).select().single();
+    if (e) return error(res, e.message, 500);
+    success(res, data, 201);
 });
 
-app.get('/api/v1/categories/{id}', (req, res) => {
-    const cat = categories.find(c => c.id === req.params.id);
-    cat ? success(res, cat) : error(res, "Категория не найдена", 404);
+app.get('/api/v1/categories/:id', async (req, res) => {
+    const { data } = await supabase.from('category').select('*').eq('id', req.params.id).single();
+    data ? success(res, data) : error(res, "Категория не найдена", 404);
 });
 
-app.put('/api/v1/categories/{id}', authenticate, isAdmin, (req, res) => {
-    success(res, { message: "Категория успешно обновлена" });
+app.put('/api/v1/categories/:id', authenticate, isAdmin, async (req, res) => {
+    const { data, error: e } = await supabase.from('category').update(req.body).eq('id', req.params.id).select().single();
+    if (e) return error(res, e.message, 500);
+    success(res, data);
 });
 
-app.delete('/api/v1/categories/{id}', authenticate, isAdmin, (req, res) => {
-    categories = categories.filter(c => c.id !== req.params.id);
+app.delete('/api/v1/categories/:id', authenticate, isAdmin, async (req, res) => {
+    const { error: e } = await supabase.from('category').delete().eq('id', req.params.id);
+    if (e) return error(res, e.message, 500);
     res.status(204).send();
 });
 
 // ====================== FILMS ======================
-app.get('/api/v1/films', (req, res) => success(res, { films, total: films.length }));
-
-app.post('/api/v1/films', authenticate, isAdmin, (req, res) => {
-    if (!req.body.title || !req.body.category) return error(res, "title и category обязательны");
-    const newFilm = { id: nanoid(8), ...req.body, averageRating: 0 };
-    films.push(newFilm);
-    success(res, newFilm, 201);
+app.get('/api/v1/films', async (req, res) => {
+    const { data } = await supabase.from('film').select('*, film_category(category(*)), film_actor(actor(*))');
+    success(res, { films: data, total: data.length });
 });
 
-app.get('/api/v1/films/{id}', (req, res) => {
-    const film = films.find(f => f.id === req.params.id);
-    film ? success(res, film) : error(res, "Фильм не найден", 404);
+app.post('/api/v1/films', authenticate, isAdmin, async (req, res) => {
+    const { data, error: e } = await supabase.from('film').insert([req.body]).select().single();
+    if (e) return error(res, e.message, 500);
+    success(res, data, 201);
 });
 
-app.put('/api/v1/films/{id}', authenticate, isAdmin, (req, res) => {
-    const film = films.find(f => f.id === req.params.id);
-    if (!film) return error(res, "Фильм не найден", 404);
-    Object.assign(film, req.body);
-    success(res, film);
+app.get('/api/v1/films/:id', async (req, res) => {
+    const { data } = await supabase.from('film').select('*, film_category(category(*)), film_actor(actor(*))').eq('id', req.params.id).single();
+    data ? success(res, data) : error(res, "Фильм не найден", 404);
 });
 
-app.delete('/api/v1/films/{id}', authenticate, isAdmin, (req, res) => {
-    films = films.filter(f => f.id !== req.params.id);
+app.put('/api/v1/films/:id', authenticate, isAdmin, async (req, res) => {
+    const { data, error: e } = await supabase.from('film').update(req.body).eq('id', req.params.id).select().single();
+    if (e) return error(res, e.message, 500);
+    success(res, data);
+});
+
+app.delete('/api/v1/films/:id', authenticate, isAdmin, async (req, res) => {
+    const { error: e } = await supabase.from('film').delete().eq('id', req.params.id);
+    if (e) return error(res, e.message, 500);
     res.status(204).send();
 });
 
-app.get('/api/v1/films/top', (req, res) => {
-    const limit = parseInt(req.query.limit) || 10;
-    const top = [...films].sort((a, b) => b.averageRating - a.averageRating).slice(0, limit);
-    success(res, top);
+app.get('/api/v1/films/top', async (req, res) => {
+    const { data } = await supabase.from('film').select('*, film_category(category(*)), film_actor(actor(*))').order('rating', { ascending: false }).limit(parseInt(req.query.limit) || 10);
+    success(res, data);
 });
 
 // ====================== REVIEWS ======================
-app.post('/api/v1/films/{film_id}/reviews', authenticate, (req, res) => {
+app.post('/api/v1/films/:film_id/reviews', authenticate, async (req, res) => {
     const { rating, comment } = req.body;
     if (!rating || rating < 1 || rating > 5) return error(res, "Рейтинг должен быть от 1 до 5");
 
-    const review = {
+    const { data, error: e } = await supabase.from('review').insert([{
         id: nanoid(8),
-        filmId: req.params.film_id,
-        userId: req.user.id,
+        film_id: req.params.film_id,
+        user_id: req.user.id,
         rating: Number(rating),
         comment: comment || '',
         likes: 0,
-        createdAt: new Date().toISOString()
-    };
-
-    reviews.push(review);
-
-    // Пересчёт среднего рейтинга
-    const filmReviews = reviews.filter(r => r.filmId === req.params.film_id);
-    const avg = filmReviews.length ? filmReviews.reduce((sum, r) => sum + r.rating, 0) / filmReviews.length : 0;
-    const film = films.find(f => f.id === req.params.film_id);
-    if (film) film.averageRating = Number(avg.toFixed(1));
-
-    success(res, review, 201);
+        created_at: new Date().toISOString()
+    }]).select().single();
+    if (e) return error(res, e.message, 500);
+    success(res, data, 201);
 });
 
-app.get('/api/v1/films/{film_id}/reviews', (req, res) => success(res, reviews.filter(r => r.filmId === req.params.film_id)));
-
-app.get('/api/v1/reviews/my', authenticate, (req, res) => success(res, reviews.filter(r => r.userId === req.user.id)));
-
-app.get('/api/v1/reviews/{id}', (req, res) => {
-    const review = reviews.find(r => r.id === req.params.id);
-    review ? success(res, review) : error(res, "Отзыв не найден", 404);
+app.get('/api/v1/films/:film_id/reviews', async (req, res) => {
+    const { data } = await supabase.from('review').select('*').eq('film_id', req.params.film_id);
+    success(res, data);
 });
 
-app.put('/api/v1/reviews/{id}', authenticate, (req, res) => success(res, { message: "Отзыв успешно обновлён" }));
+app.get('/api/v1/reviews/my', authenticate, async (req, res) => {
+    const { data } = await supabase.from('review').select('*').eq('user_id', req.user.id);
+    success(res, data);
+});
 
-app.delete('/api/v1/reviews/{id}', authenticate, (req, res) => {
-    reviews = reviews.filter(r => r.id !== req.params.id);
+app.get('/api/v1/reviews/:id', async (req, res) => {
+    const { data } = await supabase.from('review').select('*').eq('id', req.params.id).single();
+    data ? success(res, data) : error(res, "Отзыв не найден", 404);
+});
+
+app.put('/api/v1/reviews/:id', authenticate, (req, res) => success(res, { message: "Отзыв успешно обновлён" }));
+
+app.delete('/api/v1/reviews/:id', authenticate, async (req, res) => {
+    const { error: e } = await supabase.from('review').delete().eq('id', req.params.id);
+    if (e) return error(res, e.message, 500);
     res.status(204).send();
 });
 
-app.post('/api/v1/reviews/{id}/like', authenticate, (req, res) => {
-    const review = reviews.find(r => r.id === req.params.id);
-    if (review) review.likes++;
-    success(res, { likes: review?.likes || 0 });
+app.post('/api/v1/reviews/:id/like', authenticate, async (req, res) => {
+    const { data: review } = await supabase.from('review').select('likes').eq('id', req.params.id).single();
+    if (review) await supabase.from('review').update({ likes: (review.likes || 0) + 1 }).eq('id', req.params.id);
+    success(res, { likes: (review?.likes || 0) + 1 });
 });
 
-app.delete('/api/v1/reviews/{id}/like', authenticate, (req, res) => {
-    const review = reviews.find(r => r.id === req.params.id);
-    if (review && review.likes > 0) review.likes--;
-    success(res, { likes: review?.likes || 0 });
+app.delete('/api/v1/reviews/:id/like', authenticate, async (req, res) => {
+    const { data: review } = await supabase.from('review').select('likes').eq('id', req.params.id).single();
+    if (review && review.likes > 0) await supabase.from('review').update({ likes: review.likes - 1 }).eq('id', req.params.id);
+    success(res, { likes: (review?.likes || 0) - 1 || 0 });
 });
 
-app.get('/api/v1/films/{film_id}/average-rating', (req, res) => {
-    const film = films.find(f => f.id === req.params.film_id);
-    success(res, { averageRating: film ? film.averageRating : 0 });
+app.get('/api/v1/films/:film_id/average-rating', async (req, res) => {
+    const { data } = await supabase.from('review').select('rating').eq('film_id', req.params.film_id);
+    const avg = data.length ? data.reduce((sum, r) => sum + r.rating, 0) / data.length : 0;
+    success(res, { averageRating: Number(avg.toFixed(1)) });
 });
 
-app.get('/api/v1/users/{user_id}/reviews', (req, res) => success(res, reviews.filter(r => r.userId === req.params.user_id)));
+app.get('/api/v1/users/:user_id/reviews', async (req, res) => {
+    const { data } = await supabase.from('review').select('*').eq('user_id', req.params.user_id);
+    success(res, data);
+});
 
+// ====================== JUNCTION ======================
+app.post('/api/v1/films/:film_id/categories', authenticate, isAdmin, async (req, res) => {
+    const { category_id } = req.body;
+    if (!category_id) return error(res, "category_id обязателен");
+    const { error: e } = await supabase.from('film_category').insert([{ film_id: req.params.film_id, category_id }]);
+    if (e) return error(res, e.message, 500);
+    success(res, { message: "Категория добавлена к фильму" });
+});
+
+app.post('/api/v1/films/:film_id/actors', authenticate, isAdmin, async (req, res) => {
+    const { actor_id, character, ordering } = req.body;
+    if (!actor_id) return error(res, "actor_id обязателен");
+    const { error: e } = await supabase.from('film_actor').insert([{ film_id: req.params.film_id, actor_id, character, ordering: ordering || 0 }]);
+    if (e) return error(res, e.message, 500);
+    success(res, { message: "Актёр добавлен к фильму" });
+});
+
+// ====================== ЗАПУСК ======================
 app.listen(port, () => {
     console.log(`✅ FilmHub сервер запущен на http://localhost:${port}`);
+    console.log('👤 Админ: admin@filmhub.ru / admin123');
 });
