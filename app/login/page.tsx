@@ -2,18 +2,53 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { API } from '../lib/api';
+import Header from '../../components/Header';
 
 export default function Login() {
+  const router = useRouter();
   const [formData, setFormData] = useState({
     email: '',
     password: '',
   });
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [agree, setAgree] = useState(false);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({
       ...formData,
       [e.target.name]: e.target.value,
     });
+    // Сбрасываем ошибку при изменении полей
+    if (error) setError('');
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!agree) {
+      setError('Необходимо согласиться с правилами сайта');
+      return;
+    }
+    setLoading(true);
+    setError('');
+
+    try {
+      const result = await API.auth.login(formData.email, formData.password);
+      if (result.success) {
+        // Токен уже сохранён в API.auth.login
+        router.push('/'); // редирект на главную
+      } else {
+        setError('Ошибка входа. Проверьте email и пароль.');
+      }
+    } catch (err: any) {
+      console.error('Login error:', err);
+      const message = err.response?.data?.message || 'Не удалось войти. Попробуйте позже.';
+      setError(message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -23,17 +58,17 @@ export default function Login() {
         <div className="w-full max-w-md">
           {/* Логотип */}
           <div className="flex justify-center mb-10">
-            <div className="flex items-center gap-3">
+            <Link href="/" className="flex items-center gap-3">
               <div className="w-12 h-12 bg-black rounded-2xl flex items-center justify-center">
                 <span className="text-white font-bold text-4xl">M</span>
               </div>
               <span className="text-4xl font-semibold tracking-tight">Marka</span>
-            </div>
+            </Link>
           </div>
 
           <h1 className="text-4xl font-semibold text-center mb-10">Вход</h1>
 
-          <div className="space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-6">
             <div>
               <label className="block text-sm text-gray-600 mb-2">E-mail</label>
               <input
@@ -43,6 +78,8 @@ export default function Login() {
                 onChange={handleChange}
                 placeholder="example@mail.com"
                 className="w-full px-5 py-4 bg-white border border-gray-200 rounded-2xl focus:outline-none focus:border-purple-600 transition"
+                required
+                disabled={loading}
               />
             </div>
 
@@ -55,18 +92,37 @@ export default function Login() {
                 onChange={handleChange}
                 placeholder="••••••••"
                 className="w-full px-5 py-4 bg-white border border-gray-200 rounded-2xl focus:outline-none focus:border-purple-600 transition"
+                required
+                disabled={loading}
               />
             </div>
 
             <div className="flex items-center gap-2">
-              <input type="checkbox" id="remember" className="w-5 h-5 accent-purple-700" />
+              <input
+                type="checkbox"
+                id="remember"
+                checked={agree}
+                onChange={(e) => setAgree(e.target.checked)}
+                className="w-5 h-5 accent-purple-700"
+                disabled={loading}
+              />
               <label htmlFor="remember" className="text-sm text-gray-600 cursor-pointer">
                 Я согласен с правилами сайта
               </label>
             </div>
 
-            <button className="w-full bg-purple-700 hover:bg-purple-800 text-white py-4 rounded-2xl font-semibold text-lg transition">
-              Войти
+            {error && (
+              <div className="bg-red-50 text-red-600 p-3 rounded-2xl text-sm text-center">
+                {error}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-purple-700 hover:bg-purple-800 text-white py-4 rounded-2xl font-semibold text-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {loading ? 'Вход...' : 'Войти'}
             </button>
 
             <div className="relative text-center my-8">
@@ -76,10 +132,14 @@ export default function Login() {
               <span className="relative bg-[#F8F5F0] px-6 text-gray-500 text-sm">Или</span>
             </div>
 
-            <button className="w-full border border-gray-300 hover:border-gray-400 bg-white py-4 rounded-2xl flex items-center justify-center gap-3 transition">
-              <img 
-                src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" 
-                alt="Google" 
+            <button
+              type="button"
+              disabled={loading}
+              className="w-full border border-gray-300 hover:border-gray-400 bg-white py-4 rounded-2xl flex items-center justify-center gap-3 transition disabled:opacity-50"
+            >
+              <img
+                src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg"
+                alt="Google"
                 className="w-6 h-6"
               />
               <span className="font-medium">Продолжить с Google</span>
@@ -91,13 +151,13 @@ export default function Login() {
                 Зарегистрироваться
               </Link>
             </p>
-          </div>
+          </form>
         </div>
       </div>
 
       {/* Правая часть — Большое изображение */}
       <div className="hidden lg:block w-5/12 relative">
-        <img 
+        <img
           src="/images/movies/bg-big.png"
           alt="Login background"
           className="absolute inset-0 w-full h-full object-cover"
