@@ -11,7 +11,7 @@ const { createClient } = require('@supabase/supabase-js');
 dotenv.config();
 
 const app = express();
-const port = 3000;
+const port = 3001;
 
 const ACCESS_SECRET = process.env.ACCESS_SECRET;
 const REFRESH_SECRET = process.env.REFRESH_SECRET;
@@ -27,7 +27,7 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 console.log('🔥 Подключено к Supabase — полная ER-диаграмма');
 
 // ====================== MIDDLEWARE ======================
-app.use(cors({ origin: "http://localhost:3001", credentials: true }));
+app.use(cors({ origin: "http://localhost:3000", credentials: true }));
 app.use(express.json());
 app.use(cookieParser());
 
