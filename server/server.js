@@ -480,6 +480,30 @@ app.post('/api/v1/films/:film_id/actors', authenticate, isAdmin, async (req, res
     if (e) return error(res, e.message, 500);
     success(res, { message: "Актёр добавлен к фильму" });
 });
+// ====================== ACTORS ======================
+app.get('/api/v1/actors', async (req, res) => {
+    const { data } = await supabase.from('actor').select('*');
+    success(res, data);
+});
+
+app.post('/api/v1/actors', authenticate, isAdmin, async (req, res) => {
+    const { name, biography, birth_date, photo_url } = req.body;
+    if (!name) return error(res, "Имя актёра обязательно");
+
+    const { data, error: e } = await supabase
+        .from('actor')
+        .insert([{
+            name,
+            biography: biography || '',
+            birth_date,
+            photo_url
+        }])
+        .select()
+        .single();
+
+    if (e) return error(res, e.message, 500);
+    success(res, data, 201);
+});
 
 // ====================== ЗАПУСК ======================
 app.listen(port, () => {
