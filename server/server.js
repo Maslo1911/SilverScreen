@@ -91,7 +91,7 @@ app.post('/api/v1/auth/login', async (req, res) => {
     console.log('=== LOGIN DEBUG ===');
     console.log('Email:', email);
 
-    const { data: user, error } = await supabase
+    const { data: user, dbError } = await supabase
         .from('user')
         .select('id, email, password, role_id')
         .eq('email', email)
@@ -100,7 +100,7 @@ app.post('/api/v1/auth/login', async (req, res) => {
     console.log('User from DB:', user);
     console.log('DB Error:', error);
 
-    if (error || !user || !(await bcrypt.compare(password, user.password))) {
+    if (dbError || !user || !(await bcrypt.compare(password, user.password))) {
         console.log('Login failed');
         return error(res, "Неверный email или пароль", 401);
     }

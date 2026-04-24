@@ -9,13 +9,21 @@ import Header from 'components/Header';
 
 interface Film {
   id: number;
-  title: string;
+  name: string;
   year: number;
   country: string;
   image: string;
   genres: string[];
 }
 
+type FilmDTO = {
+  id: number;
+  name: string;
+  year?: number;
+  country?: string;
+  poster_url?: string;
+  genres?: string[];
+};
 
 export default function Home() {
   const [films, setFilms] = useState<Film[]>([]);
@@ -31,10 +39,18 @@ export default function Home() {
     API.films.getAll()
       .then(async (res) => {
         const filmsData = res.data.data;
-        setFilms(filmsData);
+        const normalizedFilms: Film[] = filmsData.films.map((f: FilmDTO) => ({
+          id: f.id,
+          name: f.name ?? 'Без названия',
+          year: f.year ?? 0,
+          country: f.country ?? 'Неизвестно',
+          image: f.poster_url ?? '',
+          genres: Array.isArray(f.genres) ? f.genres : []
+        }));
+        setFilms(normalizedFilms);
         // Загружаем средние рейтинги для каждого фильма
         const ratingsMap: { [key: number]: number } = {};
-        for (const film of filmsData) {
+        for (const film of normalizedFilms) {
           try {
             const avgRes = await API.reviews.getAverageRating(film.id);
             ratingsMap[film.id] = avgRes.data.data.averageRating || 0;
@@ -53,7 +69,7 @@ export default function Home() {
 
   // Фильтрация
   const filteredFilms = films.filter(film => {
-    const matchesSearch = film.title.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesSearch = film.name.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesGenre = selectedGenre ? film.genres.includes(selectedGenre) : true;
     return matchesSearch && matchesGenre;
   });
@@ -148,13 +164,13 @@ export default function Home() {
                 <div key={film.id} className="bg-white rounded-3xl overflow-hidden border border-gray-100 hover:shadow-xl transition-all duration-200 flex flex-col h-full">
                   <Link href={`/movie/${film.id}`} className="block group">
                     <div className="relative">
-                      <img src={film.image} alt={film.title} className="w-full aspect-[2/3] object-cover" />
+                      <img src={film.image} alt={film.name} className="w-full aspect-[2/3] object-cover" />
                       <div className="absolute top-3 left-3 bg-green-500 text-white text-xs font-bold px-2.5 py-1 rounded">
                         {avgRatings[film.id] ? avgRatings[film.id].toFixed(1) : '?'}
                       </div>
                     </div>
                     <div className="p-5 pb-2">
-                      <h3 className="font-semibold text-lg leading-tight mb-2 group-hover:text-purple-700 transition">{film.title}</h3>
+                      <h3 className="font-semibold text-lg leading-tight mb-2 group-hover:text-purple-700 transition">{film.name}</h3>
                       <p className="text-sm text-gray-500 mb-4">{film.year} • {film.country}</p>
                       <div className="flex flex-wrap gap-1.5 mb-4">
                         {film.genres.slice(0, 2).map(g => <span key={g} className="text-[10px] bg-gray-100 px-3 py-1 rounded-full">{g}</span>)}
