@@ -1,11 +1,11 @@
 // src/api/index.js
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
 const api = axios.create({
   baseURL: API_URL,
-  withCredentials: true,           // важно для cookie (refreshToken)
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -13,7 +13,6 @@ const api = axios.create({
 
 // ====================== INTERCEPTORS ======================
 
-// 1. Добавляем accessToken в каждый запрос
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('accessToken');
   if (token) {
@@ -22,42 +21,41 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// 2. Автоматический refresh при 401
 api.interceptors.response.use(
-  (response) => response,
-  async (error) => {
-    const originalRequest = error.config;
+    (response) => response,
+    async (error) => {
+      const originalRequest = error.config;
 
-    if (error.response?.status === 401 && !originalRequest._retry) {
-      originalRequest._retry = true;
+      if (error.response?.status === 401 && !originalRequest._retry) {
+        originalRequest._retry = true;
 
-      try {
-        const res = await axios.post(`${API_URL}/api/v1/auth/refresh`, {}, {
-          withCredentials: true,
-        });
+        try {
+          const res = await axios.post(`${API_URL}/api/v1/auth/refresh`, {}, {
+            withCredentials: true,
+          });
 
-        const newAccessToken = res.data.data.accessToken;
-        localStorage.setItem('accessToken', newAccessToken);
+          const newAccessToken = res.data.data.accessToken;
+          localStorage.setItem('accessToken', newAccessToken);
 
-        originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
-        return api(originalRequest);
-      } catch (refreshError) {
-        localStorage.removeItem('accessToken');
-        window.location.href = '/login'; // или используй navigate('/login')
-        return Promise.reject(refreshError);
+          originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+          return api(originalRequest);
+        } catch (refreshError) {
+          localStorage.removeItem('accessToken');
+          window.location.href = '/login';
+          return Promise.reject(refreshError);
+        }
       }
-    }
 
-    return Promise.reject(error);
-  }
+      return Promise.reject(error);
+    }
 );
 
 // ====================== API МЕТОДЫ ======================
 
 const API = {
   auth: {
-    register: (email, password) =>
-      api.post('/api/v1/auth/register', { email, password }),
+    register: (name, email, password) =>
+        api.post('/api/v1/auth/register', { name, email, password }),
 
     login: async (email, password) => {
       const res = await api.post('/api/v1/auth/login', { email, password });
