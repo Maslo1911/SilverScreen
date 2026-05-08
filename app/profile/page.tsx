@@ -1,121 +1,110 @@
-// app/profile/page.tsx
 'use client';
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Star, ThumbsUp, Edit, Trash2, User } from 'lucide-react';
-import { API } from '../lib/api';
-import Header from '../components/Header';
+import { Star, ThumbsUp, Edit, Camera, Mail, User } from 'lucide-react';
+import API from '@/src/api';
+import Header from '@/components/Header';
 
 interface Review {
   id: number;
   rating: number;
   comment: string;
-  createdAt: string;
-  likesCount: number;
-  isLikedByUser: boolean;
-  film: {
+  film_id: number;
+  film?: {
     id: number;
-    title: string;
-    year: number;
-    image: string;
+    name: string;
+    title?: string;
+    poster_url?: string;
+    year?: number;
   };
-}
-
-interface UserProfile {
-  email: string;
-  createdAt?: string;
+  created_at?: string;
+  likes?: number;
 }
 
 export default function Profile() {
   const router = useRouter();
   const [reviews, setReviews] = useState<Review[]>([]);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [editing, setEditing] = useState(false);
+  const [editForm, setEditForm] = useState({ username: '', email: '' });
 
-  // Загрузка профиля и рецензий
-  const loadData = async () => {
-    setLoading(true);
-    setError('');
+  useEffect(() => {
+    const token = localStorage.getItem('accessToken');
+    if (!token) {
+      router.push('/login');
+      return;
+    }
+    fetchData();
+  }, [router]);
+
+  const fetchData = async () => {
     try {
-      // Получаем данные текущего пользователя
-      const meRes = await API.auth.me();
-      setProfile(meRes.data.data);
-
-      // Получаем рецензии пользователя
-      const reviewsRes = await API.users.getMyReviews();
-      setReviews(reviewsRes.data.data);
-    } catch (err: any) {
+      const [meRes, reviewsRes] = await Promise.all([
+        API.auth.me(),
+        API.users.getMyReviews()
+      ]);
+      
+      const userData = meRes.data?.data || meRes.data;
+      setProfile(userData);
+      setEditForm({ username: userData.username || '', email: userData.email || '' });
+      
+      let reviewsData = reviewsRes.data?.data || reviewsRes.data || [];
+      if (!Array.isArray(reviewsData)) reviewsData = [];
+      
+      // Fetch film details for each review
+      const enrichedReviews = await Promise.all(
+        reviewsData.map(async (review: any) => {
+          try {
+            const filmRes = await API.films.getById(review.film_id);
+            return { ...review, film: filmRes.data?.data || filmRes.data };
+          } catch {
+            return review;
+          }
+        })
+      );
+      setReviews(enrichedReviews);
+    } catch (err) {
       console.error(err);
-      if (err.response?.status === 401) {
-        router.push('/login');
-      } else {
-        setError('Не удалось загрузить данные профиля');
-      }
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const handleDelete = async (id: number) => {
-    if (!confirm('Удалить рецензию?')) return;
+  const handleUpdateProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
     try {
-      await API.reviews.delete(id);
-      // Обновляем список после удаления
-      setReviews(prev => prev.filter(r => r.id !== id));
+      await API.users.updateProfile(editForm.username, editForm.email);
+      setProfile({ ...profile, ...editForm });
+      setEditing(false);
     } catch (err) {
-      alert('Ошибка при удалении');
+      console.error('Ошибка обновления профиля:', err);
     }
   };
 
-  const handleEdit = (id: number) => {
-    router.push(`/add-review?editId=${id}`);
-  };
-
-  const handleLike = async (reviewId: number, isLiked: boolean) => {
-    try {
-      if (isLiked) {
-        await API.reviews.unlike(reviewId);
-      } else {
-        await API.reviews.like(reviewId);
+  const handleDeleteReview = async (reviewId: number) => {
+    if (confirm('Удалить эту рецензию?')) {
+      try {
+        await API.reviews.delete(reviewId);
+        setReviews(reviews.filter(r => r.id !== reviewId));
+      } catch (err) {
+        console.error('Ошибка удаления:', err);
       }
-      // Обновляем локальное состояние лайка
-      setReviews(prev =>
-        prev.map(r =>
-          r.id === reviewId
-            ? {
-                ...r,
-                isLikedByUser: !isLiked,
-                likesCount: isLiked ? r.likesCount - 1 : r.likesCount + 1,
-              }
-            : r
-        )
-      );
-    } catch (err) {
-      alert('Ошибка при изменении лайка');
     }
   };
+
+  const totalLikes = reviews.reduce((sum, r) => sum + (r.likes || 0), 0);
+  const avgRating = reviews.length > 0 
+    ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length 
+    : 0;
 
   if (loading) {
     return (
       <div className="min-h-screen bg-[#F8F5F0]">
         <Header />
-        <div className="flex items-center justify-center h-64">Загрузка...</div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="min-h-screen bg-[#F8F5F0]">
-        <Header />
-        <div className="flex items-center justify-center h-64 text-red-600">{error}</div>
+        <div className="flex items-center justify-center h-96">Загрузка профиля...</div>
       </div>
     );
   }
@@ -125,122 +114,101 @@ export default function Profile() {
       <Header />
 
       <div className="max-w-7xl mx-auto px-6 py-10">
-        {/* Шапка профиля */}
-        <div className="bg-white rounded-3xl p-8 flex flex-col md:flex-row items-center md:items-start gap-8 shadow-sm">
-          <div className="w-40 h-40 bg-gray-200 rounded-full flex items-center justify-center flex-shrink-0">
-            <User className="w-20 h-20 text-gray-400" />
-          </div>
-          <div className="text-center md:text-left">
-            <h1 className="text-4xl font-semibold">{profile?.email || 'Пользователь'}</h1>
-            <p className="text-gray-500 mt-1">Мой профиль</p>
-            {profile?.createdAt && (
-              <p className="text-gray-500 mt-2">
-                Зарегистрирован: {new Date(profile.createdAt).toLocaleDateString()}
-              </p>
-            )}
+        {/* Profile Header */}
+        <div className="bg-white rounded-3xl p-8 mb-8">
+          <div className="flex flex-col md:flex-row gap-8 items-start">
+            <div className="relative">
+              <div className="w-32 h-32 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center">
+                <span className="text-5xl text-white font-bold">
+                  {profile?.username?.[0]?.toUpperCase() || profile?.email?.[0]?.toUpperCase() || '?'}
+                </span>
+              </div>
+              <button className="absolute bottom-0 right-0 bg-white rounded-full p-2 shadow-lg">
+                <Camera className="w-4 h-4 text-gray-600" />
+              </button>
+            </div>
+            
+            <div className="flex-1">
+              {editing ? (
+                <form onSubmit={handleUpdateProfile} className="space-y-4">
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">Имя пользователя</label>
+                    <input
+                      type="text"
+                      value={editForm.username}
+                      onChange={e => setEditForm({...editForm, username: e.target.value})}
+                      className="w-full px-4 py-2 border rounded-xl"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">Email</label>
+                    <input
+                      type="email"
+                      value={editForm.email}
+                      onChange={e => setEditForm({...editForm, email: e.target.value})}
+                      className="w-full px-4 py-2 border rounded-xl"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button type="submit" className="bg-purple-700 text-white px-4 py-2 rounded-xl">Сохранить</button>
+                    <button type="button" onClick={() => setEditing(false)} className="border px-4 py-2 rounded-xl">Отмена</button>
+                  </div>
+                </form>
+              ) : (
+                <>
+                  <h1 className="text-3xl font-semibold">{profile?.username || profile?.name || 'Пользователь'}</h1>
+                  <p className="text-gray-500 flex items-center gap-2 mt-1"><Mail className="w-4 h-4" />{profile?.email}</p>
+                  <button onClick={() => setEditing(true)} className="mt-4 text-purple-700 hover:underline flex items-center gap-1">
+                    <Edit className="w-4 h-4" /> Редактировать профиль
+                  </button>
+                </>
+              )}
+            </div>
+            
+            <div className="flex gap-8 text-center">
+              <div><div className="text-2xl font-bold">{reviews.length}</div><div className="text-sm text-gray-500">Рецензий</div></div>
+              <div><div className="text-2xl font-bold">{totalLikes}</div><div className="text-sm text-gray-500">Лайков</div></div>
+              <div><div className="text-2xl font-bold">{avgRating.toFixed(1)}</div><div className="text-sm text-gray-500">Ср. оценка</div></div>
+            </div>
           </div>
         </div>
 
-        {/* Список рецензий */}
-        <div className="mt-12">
-          <h2 className="text-2xl font-semibold mb-8">
-            Мои рецензии {reviews.length > 0 && `(${reviews.length})`}
-          </h2>
-
-          {reviews.length === 0 ? (
-            <div className="bg-white rounded-3xl p-12 text-center text-gray-500">
-              <p className="text-lg">У вас пока нет рецензий</p>
-              <Link href="/" className="inline-block mt-4 text-purple-700 hover:underline">
-                Перейти к фильмам
-              </Link>
-            </div>
-          ) : (
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-              {reviews.map((review) => (
-                <div
-                  key={review.id}
-                  className="bg-white rounded-3xl overflow-hidden shadow-sm border border-gray-100 flex flex-col h-full"
-                >
-                  <div className="relative">
-                    <img
-                      src={review.film.image}
-                      alt={review.film.title}
-                      className="w-full h-64 object-cover"
-                    />
-                    <div className="absolute top-4 right-4 bg-black/70 text-white text-sm font-medium px-3 py-1 rounded-xl">
-                      {review.film.year}
-                    </div>
-                  </div>
-
-                  <div className="p-6 flex flex-col flex-1">
-                    <h3 className="font-semibold text-xl leading-tight mb-2">
-                      {review.film.title}
-                    </h3>
-
-                    <div className="flex gap-1 mb-4">
+        {/* Reviews Section */}
+        <h2 className="text-2xl font-semibold mb-6">Мои рецензии</h2>
+        
+        {reviews.length === 0 ? (
+          <div className="bg-white rounded-3xl p-12 text-center text-gray-500">
+            У вас пока нет рецензий. Напишите свою первую рецензию!
+          </div>
+        ) : (
+          <div className="grid md:grid-cols-2 gap-6">
+            {reviews.map(review => (
+              <div key={review.id} className="bg-white rounded-3xl overflow-hidden shadow-sm hover:shadow-md transition">
+                <div className="flex gap-4 p-6">
+                  {review.film?.poster_url && (
+                    <img src={review.film.poster_url} alt={review.film.name} className="w-20 h-28 object-cover rounded-xl" />
+                  )}
+                  <div className="flex-1">
+                    <Link href={`/movie/${review.film_id}`} className="font-semibold text-lg hover:text-purple-700 transition">
+                      {review.film?.name || review.film?.title || `Фильм #${review.film_id}`}
+                    </Link>
+                    <div className="flex gap-1 mt-2 mb-3">
                       {[...Array(5)].map((_, i) => (
-                        <Star
-                          key={i}
-                          className={`w-5 h-5 ${
-                            i < review.rating
-                              ? 'fill-yellow-400 text-yellow-400'
-                              : 'text-gray-300'
-                          }`}
-                        />
+                        <Star key={i} className={`w-4 h-4 ${i < review.rating ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'}`} />
                       ))}
                     </div>
-
-                    <p className="text-gray-600 text-[15px] leading-relaxed line-clamp-4 mb-6 flex-1">
-                      {review.comment}
-                    </p>
-
-                    <div className="flex justify-between items-center mt-auto">
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleEdit(review.id)}
-                          className="bg-gray-100 hover:bg-gray-200 p-2 rounded-xl transition"
-                          title="Редактировать"
-                        >
-                          <Edit className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(review.id)}
-                          className="bg-red-50 hover:bg-red-100 p-2 rounded-xl transition"
-                          title="Удалить"
-                        >
-                          <Trash2 className="w-4 h-4 text-red-600" />
-                        </button>
-                        <Link
-                          href={`/movie/${review.film.id}`}
-                          className="bg-purple-700 text-white py-2 px-4 rounded-2xl text-sm font-medium hover:bg-purple-800 transition"
-                        >
-                          К фильму
-                        </Link>
-                      </div>
-
-                      <button
-                        onClick={() => handleLike(review.id, review.isLikedByUser)}
-                        className={`flex items-center gap-1 transition ${
-                          review.isLikedByUser
-                            ? 'text-blue-600'
-                            : 'text-gray-500 hover:text-blue-600'
-                        }`}
-                      >
-                        <ThumbsUp className="w-4 h-4" />
-                        <span>{review.likesCount}</span>
-                      </button>
+                    <p className="text-gray-600 text-sm line-clamp-3">{review.comment || 'Без текста'}</p>
+                    <div className="flex gap-4 mt-4">
+                      <Link href={`/add-review?editId=${review.id}`} className="text-blue-600 text-sm hover:underline">Редактировать</Link>
+                      <button onClick={() => handleDeleteReview(review.id)} className="text-red-600 text-sm hover:underline">Удалить</button>
                     </div>
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
-
-      <footer className="bg-white py-10 text-center text-gray-500 border-t mt-20">
-        © Marka. Все права защищены
-      </footer>
     </div>
   );
 }
