@@ -40,8 +40,8 @@ api.interceptors.response.use(
 
 export const API = {
   auth: {
-    register: (email: string, password: string) =>
-      api.post('/api/v1/auth/register', { email, password }),
+    register: (username: string, email: string, password: string) =>
+      api.post('/api/v1/auth/register', { username, email, password }),
     login: async (email: string, password: string) => {
       const res = await api.post('/api/v1/auth/login', { email, password });
       if (res.data.success && res.data.data.accessToken) {
@@ -57,10 +57,13 @@ export const API = {
   },
   users: {
     getMyReviews: () => api.get('/api/v1/reviews/my'),
+    updateProfile: (username: string, email: string) =>
+      api.put('/api/v1/users/me', { username, email }),
   },
   films: {
     getAll: () => api.get('/api/v1/films'),
     getById: (id: number) => api.get(`/api/v1/films/${id}`),
+    getActors: (filmId: number) => api.get(`/api/v1/films/${filmId}/actors`), // новый метод
   },
   reviews: {
     getByFilm: (filmId: number) => api.get(`/api/v1/films/${filmId}/reviews`),
@@ -76,4 +79,24 @@ export const API = {
     getAverageRating: (filmId: number) =>
       api.get(`/api/v1/films/${filmId}/average-rating`),
   },
+  actors: {
+    getAll: () => api.get('/api/v1/actors'),
+    getById: (id: number) => api.get(`/api/v1/actors/${id}`),
+    create: (data: any) => api.post('/api/v1/actors', data),
+    update: (id: number, data: any) => api.put(`/api/v1/actors/${id}`, data),
+    delete: (id: number) => api.delete(`/api/v1/actors/${id}`),
+  },
+  // Добавьте в объект API.admin:
+  admin: {
+    getUsers: () => api.get('/api/v1/users'),
+    getUser: (id: number) => api.get(`/api/v1/users/${id}`),
+    updateUserRole: (id: number, role: string) => api.put(`/api/v1/users/${id}/role`, { role }),
+    deleteUser: (id: number) => api.delete(`/api/v1/users/${id}`),
+    createFilm: (data: any) => api.post('/api/v1/films', data),
+    updateFilm: (id: number, data: any) => api.put(`/api/v1/films/${id}`, data),
+    deleteFilm: (id: number) => api.delete(`/api/v1/films/${id}`),
+    getAllReviews: () => api.get('/api/v1/reviews'),
+  },
 };
+
+export default API;
