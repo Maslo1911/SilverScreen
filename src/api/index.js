@@ -77,6 +77,8 @@ const API = {
     getAll: () => api.get('/api/v1/users'),                    // только админ
     getMyReviews: () => api.get('/api/v1/reviews/my'),
     getUserReviews: (userId) => api.get(`/api/v1/users/${userId}/reviews`),
+    update: (name, email) => api.put(`/api/v1/users/me'`, {name, email}),
+    delete: (id) => api.delete(`/api/v1/users/${id}`)
   },
 
   roles: {
@@ -112,7 +114,7 @@ const API = {
   reviews: {
     create: (filmId, rating, comment = '') =>
       api.post(`/api/v1/films/${filmId}/reviews`, { rating, comment }),
-
+    getAll: () => api.get('/api/v1/reviews'),
     getByFilm: (filmId) => api.get(`/api/v1/films/${filmId}/reviews`),
 
     getById: (id) => api.get(`/api/v1/reviews/${id}`),
@@ -124,6 +126,10 @@ const API = {
 
     getAverageRating: (filmId) =>
       api.get(`/api/v1/films/${filmId}/average-rating`),
+  },
+
+  actors: {
+    getById: (id) => api.get(`/api/v1/actors/${id}`)
   },
 
   // Junction-таблицы (для админа)

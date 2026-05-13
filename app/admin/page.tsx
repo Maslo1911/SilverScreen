@@ -96,12 +96,12 @@ export default function AdminPanel() {
         setFilms(filmsData);
       } 
       else if (activeTab === 'users') {
-        const res = await API.admin.getUsers();
+        const res = await API.users.getAll();
         const usersData = res.data?.data || res.data || [];
         setUsers(usersData);
       }
       else if (activeTab === 'reviews') {
-        const res = await API.admin.getAllReviews();
+        const res = await API.reviews.getAll();
         let reviewsData = res.data?.data || res.data || [];
         if (!Array.isArray(reviewsData)) reviewsData = [];
         setReviews(reviewsData);
@@ -138,7 +138,7 @@ export default function AdminPanel() {
   // Film CRUD
   const handleCreateFilm = async (filmData: Partial<Film>) => {
     try {
-      await API.admin.createFilm(filmData);
+      await API.films.create(filmData);
       await fetchData();
       setShowFilmModal(false);
       setSuccess('Фильм успешно добавлен');
@@ -151,7 +151,7 @@ export default function AdminPanel() {
 
   const handleUpdateFilm = async (id: number, filmData: Partial<Film>) => {
     try {
-      await API.admin.updateFilm(id, filmData);
+      await API.films.update(id, filmData);
       await fetchData();
       setEditingFilm(null);
       setShowFilmModal(false);
@@ -166,7 +166,7 @@ export default function AdminPanel() {
   const handleDeleteFilm = async (id: number) => {
     if (confirm('Удалить этот фильм? Все связанные рецензии также будут удалены.')) {
       try {
-        await API.admin.deleteFilm(id);
+        await API.films.delete(id);
         await fetchData();
         setSuccess('Фильм успешно удалён');
         setTimeout(() => setSuccess(''), 3000);
@@ -180,7 +180,7 @@ export default function AdminPanel() {
   // User management
   const handleUpdateUserRole = async (id: number, role: string) => {
     try {
-      await API.admin.updateUserRole(id, role);
+      await API.roles.update(id, role);
       await fetchData();
       setEditingUser(null);
       setShowUserModal(false);
@@ -195,7 +195,7 @@ export default function AdminPanel() {
   const handleDeleteUser = async (id: number) => {
     if (confirm('Удалить этого пользователя? Все его рецензии также будут удалены.')) {
       try {
-        await API.admin.deleteUser(id);
+        await API.users.delete(id);
         await fetchData();
         setSuccess('Пользователь удалён');
         setTimeout(() => setSuccess(''), 3000);

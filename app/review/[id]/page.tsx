@@ -3,13 +3,13 @@
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Star, ThumbsUp } from 'lucide-react';
-import { getAllReviews, likeReview, unlikeReview, hasUserLiked, getTotalLikes } from '@/app/lib/reviews';
+import {getAllReviews, likeReview, unlikeReview, hasUserLiked, getTotalLikes, UserReview} from '@/app/lib/reviews';
 import { useState, useEffect } from 'react';
 
 export default function ReviewPage() {
   const params = useParams();
   const id = parseInt(params.id as string);
-  const [review, setReview] = useState(null);
+  const [review, setReview] = useState<UserReview | null | undefined>(null);
   const [, forceUpdate] = useState({});
 
   useEffect(() => {

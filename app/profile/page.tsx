@@ -76,7 +76,7 @@ export default function Profile() {
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await API.users.updateProfile(editForm.username, editForm.email);
+      await API.users.update(editForm.username, editForm.email);
       setProfile({ ...profile, ...editForm });
       setEditing(false);
     } catch (err) {

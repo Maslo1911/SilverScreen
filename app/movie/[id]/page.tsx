@@ -195,7 +195,7 @@ export default function MovieDetail() {
         setLikedReviews(prev => {
           const newSet = new Set(prev);
           newSet.delete(reviewId);
-          localStorage.setItem(`liked_reviews_${currentUserId}`, JSON.stringify([...newSet]));
+          localStorage.setItem(`liked_reviews_${currentUserId}`, JSON.stringify([Array.from(newSet)]));
           return newSet;
         });
         setReviews(prev =>
@@ -210,7 +210,7 @@ export default function MovieDetail() {
         setLikedReviews(prev => {
           const newSet = new Set(prev);
           newSet.add(reviewId);
-          localStorage.setItem(`liked_reviews_${currentUserId}`, JSON.stringify([...newSet]));
+          localStorage.setItem(`liked_reviews_${currentUserId}`, JSON.stringify([Array.from(newSet)]));
           return newSet;
         });
         setReviews(prev =>
